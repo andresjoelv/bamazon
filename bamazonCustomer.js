@@ -1,7 +1,6 @@
 var mysql = require('mysql');
 var inquirer = require('inquirer');
-const cTable = require('console.table');
-
+var Table = require('cli-table');
 
 
 var connection = mysql.createConnection({
@@ -14,27 +13,20 @@ var connection = mysql.createConnection({
 
 connection.connect((err) => {
     if(err) throw err;
-    print();
+    querySearch();
 });
 
-function print(){
-    var resArray = [];
-    var query = "SELECT * FROM bamazon.products;";
+function querySearch(){
+    var query = "SELECT * FROM products;";
     connection.query(query, (err, res) => {
+        var table = new Table({
+            head: ['item_id', 'product_name', 'department_name', 'price', 'stock_quantity']
+        });
         if(err) throw err;
         for( var i = 0; i < res.length; i++){
-            var results = 
-            {
-                "item_id" : res[i].item_id,
-                "product_name" : res[i].product_name,
-                "price" : res[i].price
-            };
-
-            resArray.push(results);
-            //console.log("item_id: " + res[i].item_id + "\nproduct_name: " + res[i].product_name + "\ndepartment_name: " + res[i].department_name
-            //+ "\nprice: $" + res[i].price + "\nstock_quantity: " + res[i].stock_quantity + "\n-----------\n");
+            table.push([res[i].item_id, res[i].product_name, res[i].department_name, res[i].price, res[i].stock_quantity]);
         }
-        console.table(resArray);
+        console.log(table.toString());
         inquirer.prompt([
         {
             type:"input",
@@ -56,33 +48,46 @@ function print(){
         }
         ]).then((answer) => {
             // id of item to buy
-            var itemID = answer.item_id - 1;
+            var itemID = answer.item_id;
             // quantity to buy
             var qtyToBuy = answer.quantity;
+
+            // NEW STUFF
+            // Query db to confirm that the given item ID exists in the desired quantity
+            var queryStr = 'SELECT * FROM products WHERE ?';
             
-            // item price
-            var price = res[itemID].price;
+            connection.query(queryStr, {item_id: itemID}, (err, data) => {
+                if (err) throw err;
+
+                // If the user has selected an invalid item ID, data attay will be empty
+                if (data.length === 0) {
+                    console.log('ERROR: Invalid Item ID. Please select a valid Item ID.');
+                    displayInventory();
     
-            var totalAmount = price * qtyToBuy;
-            
-            var newStockQty = res[itemID].stock_quantity - qtyToBuy;
-    
-            if(qtyToBuy < res[0].stock_quantity){
-                var query = "UPDATE Products SET stock_quantity = ? WHERE item_id = ?";
-                connection.query(query, [newStockQty,itemID], (err, res) => {
-                    if(err) throw err;
-                    console.log(`Your total is: $${totalAmount.toFixed(2)}`);
-                    print();
-                });
-            }
-            else {
-                console.log("Insufficient quantity!");
-                print();
-            }
+                } else {
+                    var productData = data[0];
+
+                    // If the quantity requested by the user is in stock
+                    if (qtyToBuy <= productData.stock_quantity) {
+                        console.log('Congratulations, the product you requested is in stock! Placing order!');
+
+                        var newStockQty = productData.stock_quantity - qtyToBuy;
+
+                        // Construct the updating query string
+                        var updateQueryStr = 'UPDATE products SET stock_quantity = ' + newStockQty + ' WHERE item_id = ' + itemID;
+                        
+                        // Update the inventory
+                        connection.query(updateQueryStr, (err, data) => {
+                            if (err) throw err;
+
+                            querySearch();
+                        });
+                    } else {
+                        console.log("Insufficient quantity!");
+					    querySearch();
+                    }
+                }
+            });
         });
     });   
-}
-
-var runSearch = function(){
-    
 }
